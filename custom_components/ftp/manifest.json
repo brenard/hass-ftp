@@ -12,6 +12,6 @@
   "loggers": ["aioftp"],
   "requirements": ["aioftp==0.25.1"],
   "ssdp": [],
-  "version": "2025.5.1",
+  "version": "2025.5.2",
   "zeroconf": []
 }
