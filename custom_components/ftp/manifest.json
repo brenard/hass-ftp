@@ -1,0 +1,12 @@
+{
+  "domain": "ftp",
+  "name": "FTP",
+  "version": "0.1",
+  "codeowners": ["@brenard"],
+  "config_flow": true,
+  "documentation": "https://github.com/brenard/hass-ftp",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "loggers": ["aioftp"],
+  "requirements": ["aioftp==0.25.1"]
+}
