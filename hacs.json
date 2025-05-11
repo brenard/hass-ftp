@@ -1,0 +1,6 @@
+{
+  "name": "FTP",
+  "country": ["FR"],
+  "homeassistant": "0.110.0",
+  "render_readme": true
+}
