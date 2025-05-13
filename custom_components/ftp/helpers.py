@@ -4,26 +4,67 @@ import logging
 
 from aioftp import Client
 from aioftp.errors import AIOFTPException
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
-async def async_create_client(
-    *,
-    hass: HomeAssistant,
-    host: str,
-    port: int,
-    username: str,
-    password: str,
-) -> Client:
-    """Create a FTP client."""
-    client = Client()
-    await client.connect(host, port)
-    if username and password:
-        await client.login(username, password)
-    return client
+class FtpConnection:
+
+    def __init__(self, host: str, port: str, username: str, password: str):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self._client = None
+
+    async def __aenter__(self) -> Client:
+        _LOGGER.info(
+            "Start FTP connection on %s@%s:%s",
+            self.username,
+            self.host,
+            self.port,
+        )
+        self._client = Client()
+        await self._client.connect(self.host, self.port)
+        if self.username and self.password:
+            await self._client.login(self.username, self.password)
+        return self._client
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._client and not exc:
+            try:
+                await self._client.quit()
+                _LOGGER.info(
+                    "FTP connection on %s@%s:%s disconnected",
+                    self.username,
+                    self.host,
+                    self.port,
+                )
+            except AIOFTPException:
+                _LOGGER.debug(
+                    "Failed to properly quit FTP connection on %s@%s:%s",
+                    self.username,
+                    self.host,
+                    self.port,
+                )
+        self._client = None
+
+
+class FtpClient:
+
+    def __init__(self, hass: HomeAssistant, host: str, port: str, username: str, password: str):
+        self.hass = hass
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+
+    def connect(self) -> FtpConnection:
+        return FtpConnection(self.host, self.port, self.username, self.password)
+
+    def __str__(self) -> str:
+        return f"{self.username}@{self.host}:{self.port}"
 
 
 async def async_ensure_path_exists(client: Client, path: str) -> bool:

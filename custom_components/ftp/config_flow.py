@@ -15,7 +15,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .const import CONF_BACKUP_PATH, CONF_DEFAULTS, DOMAIN
-from .helpers import async_create_client
+from .helpers import FtpClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,15 +24,17 @@ class BaseFtpConfigFlow:
     async def async_check_user_input(self, user_input: Mapping[str, Any] | None) -> bool:
         """Check FTP connection with user input"""
         # Check if we can connect to the FTP server
+        client = FtpClient(
+            hass=self.hass,
+            host=user_input[CONF_HOST],
+            port=user_input[CONF_PORT],
+            username=user_input[CONF_USERNAME],
+            password=user_input[CONF_PASSWORD],
+        )
         try:
-            client = await async_create_client(
-                hass=self.hass,
-                host=user_input[CONF_HOST],
-                port=user_input[CONF_PORT],
-                username=user_input[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
-            )
-            await client.quit()
+            _LOGGER.info("Check FTP connection on %s", client)
+            async with client.connect():
+                pass
         except AIOFTPException:
             _LOGGER.exception("Connection error")
             self._errors["base"] = "cannot_connect"

@@ -24,6 +24,7 @@ from propcache.api import cached_property
 
 from . import FtpConfigEntry
 from .const import CONF_BACKUP_PATH, DATA_BACKUP_AGENT_LISTENERS, DOMAIN
+from .helpers import FtpConnection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -129,14 +130,15 @@ class FtpBackupAgent(BackupAgent):
         :return: An async iterator that yields bytes.
         """
 
-        backup = await self._find_backup_by_id(backup_id)
-
         async def download_iterator():
-            async with self._client.download_stream(
-                f"{self._backup_path}/{suggested_filename(backup)}"
-            ) as stream:
-                async for block in stream.iter_by_block():
-                    yield block
+            _LOGGER.info("Download backup %s on %s", backup_id, self._client)
+            async with self._client.connect() as connection:
+                backup = await self._find_backup_by_id(backup_id, connection)
+                async with connection.download_stream(
+                    f"{self._backup_path}/{suggested_filename(backup)}"
+                ) as stream:
+                    async for block in stream.iter_by_block():
+                        yield block
 
         return download_iterator()
 
@@ -155,22 +157,24 @@ class FtpBackupAgent(BackupAgent):
         """
         (filename_tar, filename_meta) = suggested_filenames(backup)
 
-        async with self._client.upload_stream(f"{self._backup_path}/{filename_tar}") as stream:
-            async for block in await open_stream():
-                await stream.write(block)
+        _LOGGER.info("Upload backup on %s", self._client)
+        async with self._client.connect() as connection:
+            async with connection.upload_stream(f"{self._backup_path}/{filename_tar}") as stream:
+                async for block in await open_stream():
+                    await stream.write(block)
 
-        _LOGGER.debug(
-            "Uploaded backup to %s",
-            f"{self._backup_path}/{filename_tar}",
-        )
+            _LOGGER.debug(
+                "Uploaded backup to %s",
+                f"{self._backup_path}/{filename_tar}",
+            )
 
-        async with self._client.upload_stream(f"{self._backup_path}/{filename_meta}") as stream:
-            await stream.write(json_dumps(backup.as_dict()).encode("utf8"))
+            async with connection.upload_stream(f"{self._backup_path}/{filename_meta}") as stream:
+                await stream.write(json_dumps(backup.as_dict()).encode("utf8"))
 
-        _LOGGER.debug(
-            "Uploaded metadata file for %s",
-            f"{self._backup_path}/{filename_meta}",
-        )
+            _LOGGER.debug(
+                "Uploaded metadata file for %s",
+                f"{self._backup_path}/{filename_meta}",
+            )
 
         # reset cache
         self._cache_expiration = time()
@@ -185,13 +189,15 @@ class FtpBackupAgent(BackupAgent):
 
         :param backup_id: The ID of the backup that was returned in async_list_backups.
         """
-        backup = await self._find_backup_by_id(backup_id)
+        _LOGGER.info("Delete backup %s on %s", backup_id, self._client)
+        async with self._client.connect() as connection:
+            backup = await self._find_backup_by_id(backup_id, connection)
 
-        (filename_tar, filename_meta) = suggested_filenames(backup)
-        backup_path = f"{self._backup_path}/{filename_tar}"
+            (filename_tar, filename_meta) = suggested_filenames(backup)
+            backup_path = f"{self._backup_path}/{filename_tar}"
 
-        await self._client.remove(backup_path)
-        await self._client.remove(f"{self._backup_path}/{filename_meta}")
+            await connection.remove(backup_path)
+            await connection.remove(f"{self._backup_path}/{filename_meta}")
 
         _LOGGER.debug(
             "Deleted backup at %s",
@@ -204,6 +210,7 @@ class FtpBackupAgent(BackupAgent):
     @handle_backup_errors
     async def async_list_backups(self, **kwargs: Any) -> list[AgentBackup]:
         """List backups."""
+        _LOGGER.info("List existing backups on %s", self._client)
         return list((await self._list_cached_metadata_files()).values())
 
     @handle_backup_errors
@@ -213,22 +220,29 @@ class FtpBackupAgent(BackupAgent):
         **kwargs: Any,
     ) -> AgentBackup:
         """Return a backup."""
+        _LOGGER.info("Get backup %s on %s", backup_id, self._client)
         return await self._find_backup_by_id(backup_id)
 
-    async def _list_cached_metadata_files(self) -> dict[str, AgentBackup]:
+    async def _list_cached_metadata_files(
+        self, connection: FtpConnection = None
+    ) -> dict[str, AgentBackup]:
         """List metadata files with a cache."""
         if time() <= self._cache_expiration:
             return self._cache_metadata_files
 
+        if not connection:
+            async with self._client.connect() as connection:
+                return await self._list_cached_metadata_files(connection)
+
         async def _download_metadata(path: str) -> AgentBackup:
             """Download metadata file."""
-            async with self._client.download_stream(path) as stream:
+            async with connection.download_stream(path) as stream:
                 metadata = await stream.read()
             return AgentBackup.from_dict(json_loads_object(metadata.decode("utf8")))
 
         async def _list_metadata_files() -> dict[str, AgentBackup]:
             """List metadata files."""
-            files = await self._client.list(self._backup_path)
+            files = await connection.list(self._backup_path)
             return {
                 metadata_content.backup_id: metadata_content
                 for file_path, _ in files
@@ -240,9 +254,11 @@ class FtpBackupAgent(BackupAgent):
         self._cache_expiration = time() + CACHE_TTL
         return self._cache_metadata_files
 
-    async def _find_backup_by_id(self, backup_id: str) -> AgentBackup:
+    async def _find_backup_by_id(
+        self, backup_id: str, connection: FtpConnection = None
+    ) -> AgentBackup:
         """Find a backup by its backup ID on remote."""
-        metadata_files = await self._list_cached_metadata_files()
+        metadata_files = await self._list_cached_metadata_files(connection)
         if metadata_file := metadata_files.get(backup_id):
             return metadata_file
 
