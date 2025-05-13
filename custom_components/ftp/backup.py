@@ -63,13 +63,9 @@ def async_register_backup_agents_listener(
     return remove_listener
 
 
-def handle_backup_errors[
-    _R, **P
-](
+def handle_backup_errors[_R, **P](
     func: Callable[Concatenate[FtpBackupAgent, P], Coroutine[Any, Any, _R]],
-) -> Callable[
-    Concatenate[FtpBackupAgent, P], Coroutine[Any, Any, _R]
-]:
+) -> Callable[Concatenate[FtpBackupAgent, P], Coroutine[Any, Any, _R]]:
     """Handle backup errors."""
 
     @wraps(func)
