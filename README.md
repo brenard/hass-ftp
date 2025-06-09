@@ -56,7 +56,3 @@ Don't forget to restart Home Assistant after.
 
 **Note:** In development environment and you will be able to follow docker container logs by running
 the `./manage logs` command.
-
-## Roadmap
-
-- Manually trigger an exceptional heating cycle (by temporarily modifying the timer parameter)
